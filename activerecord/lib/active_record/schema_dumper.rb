@@ -48,6 +48,7 @@ module ActiveRecord
       header(stream)
       extensions(stream)
       types(stream)
+      functions(stream)
       tables(stream)
       trailer(stream)
       stream
@@ -102,6 +103,10 @@ HEADER
 
       # (enum) types are only supported by PostgreSQL
       def types(stream)
+      end
+
+      # function support is opt-in by adapters, currently only supported by PostgreSQL
+      def functions(stream)
       end
 
       def tables(stream)

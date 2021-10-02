@@ -20,6 +20,7 @@ module ActiveRecord
       autoload :ColumnDefinition
       autoload :ChangeColumnDefinition
       autoload :ForeignKeyDefinition
+      autoload :FunctionDefinition
       autoload :CheckConstraintDefinition
       autoload :TableDefinition
       autoload :Table

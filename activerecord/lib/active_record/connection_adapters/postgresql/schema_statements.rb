@@ -646,6 +646,81 @@ module ActiveRecord
           validate_constraint table_name, chk_name_to_validate
         end
 
+        def functions
+          # TODO: Doesn't handle argtype for OUT argmode
+          function_info = exec_query(<<~SQL, "SCHEMA").cast_values
+            SELECT n.nspname AS function_schema,
+                   p.proname AS function_name,
+                   l.lanname AS function_language,
+                   p.prosrc AS definition,
+                   ARRAY(SELECT format_type(unnest(string_to_array(proargtypes::text,' ')::oid[]), null)) AS function_argument_types,
+                   p.proargnames AS function_argument_names,
+                   p.proargmodes AS function_argument_modes,
+                   pg_get_expr(p.proargdefaults, 0) AS function_argument_defaults,
+                   format_type(p.prorettype, null) AS function_return_type
+            FROM pg_proc p
+            LEFT JOIN pg_namespace n ON p.pronamespace = n.oid
+            LEFT JOIN pg_language l ON p.prolang = l.oid
+            WHERE n.nspname = ANY (current_schemas(false))
+            ORDER BY function_schema, function_name;
+          SQL
+
+          function_info.map do |row|
+            _function_schema, function_name, function_language, function_definition, function_argument_types,
+              function_argument_names, function_argument_modes, function_argument_defaults, function_return_type = row
+
+            options = {
+              language: function_language.to_sym
+            }
+
+            argument_types = function_argument_types || []
+            argument_names = function_argument_names || []
+            argument_modes = function_argument_modes || []
+            argument_defaults = function_argument_defaults || ""
+            argument_defaults = argument_defaults.split(/, (?=(?:(?:[^']*'){2})*[^']*$)/)
+            argument_defaults = ([nil] * (argument_types.length - argument_defaults.length)) + argument_defaults
+
+            arguments = argument_types.each_with_index.map do |argtype, arg_index|
+              arg_options = { argtype: argtype }
+              arg_options[:argname] = argument_names[arg_index] if argument_names[arg_index].present?
+              arg_options[:argmode] = argument_modes[arg_index] if argument_modes[arg_index].present?
+              arg_options[:default] = argument_defaults[arg_index] if argument_defaults[arg_index].present?
+              arg_options
+            end
+
+            FunctionDefinition.new(function_name, arguments: arguments, return_type: function_return_type, definition: function_definition, **options)
+          end
+        end
+
+        def create_function(function_name, arguments, return_type, definition, **options)
+          options.assert_valid_keys(:language)
+          language = (options[:language] || :sql).to_s.downcase.to_sym
+          raise ArgumentError.new(":language must be one of :sql, or :plpgsql") unless [:sql, :plpgsql].include?(language)
+
+          function_def = FunctionDefinition.new(function_name, arguments: arguments, return_type: return_type, definition: definition, **options)
+
+          token = "$function$"
+          if definition.include?(token)
+            token = "$function_#{ActiveSupport::Digest.hexdigest(definition).first(10)}$"
+          end
+
+          sql = ["CREATE OR REPLACE FUNCTION"]
+          sql << function_signature(function_def)
+          sql << "RETURNS #{return_type}"
+          sql << "LANGUAGE #{language}"
+          sql << "AS"
+          sql << token
+          sql << definition
+          sql << token
+
+          execute sql.join(" ")
+        end
+
+        def drop_function(function_name, arguments, return_type = nil, definition = nil, **options)
+          function_def = FunctionDefinition.new(function_name, arguments: arguments, return_type: return_type, definition: definition, **options)
+          execute "DROP FUNCTION IF EXISTS #{function_signature(function_def)}"
+        end
+
         private
           def schema_creation
             PostgreSQL::SchemaCreation.new(self)
@@ -798,6 +873,16 @@ module ActiveRecord
           def extract_schema_qualified_name(string)
             name = Utils.extract_schema_qualified_name(string.to_s)
             [name.schema, name.identifier]
+          end
+
+          def function_signature(function_def)
+            argument_definitions = function_def.arguments.map do |a|
+              arg_definition = [a[:argmode], a[:argname], a[:argtype]]
+              arg_definition << "DEFAULT #{quote(a[:default])}" if a.key?(:default)
+              arg_definition.compact.join(" ")
+            end
+
+            "#{quote_table_name(function_def.name)}(#{argument_definitions.join(', ')})"
           end
       end
     end

@@ -28,6 +28,50 @@ module ActiveRecord
             end
           end
 
+          def functions(stream)
+            functions = @connection.functions
+            if functions.any?
+              stream.puts "  # Custom functions defined in this database."
+              stream.puts "  # Note that create_function doesn't work with all database engines. Be careful if changing database."
+              functions.sort_by(&:name).each do |function_def|
+                options = function_def.options.compact.map do |key, value|
+                  "#{key}: #{value.inspect}"
+                end.join(", ")
+
+                arg_defs = function_def.arguments.map do |a|
+                  if a.key?(:argtype) && a.size == 1
+                    ":#{a[:argtype]}"
+                  else
+                    arg_def = ["argtype: :#{a[:argtype]}"]
+                    arg_def << ["argname: #{a[:argname].inspect}"] if a[:argname].present?
+                    arg_def << ["argmode: #{a[:argmode].inspect}"] if a[:argmode].present?
+                    arg_def << ["default: #{a[:default].inspect}"] if a[:default].present?
+
+                    "{ #{arg_def.join(', ')} }"
+                  end
+                end
+
+                token = "SQL"
+                if function_def.definition.include?(token)
+                  token = "SQL_#{ActiveSupport::Digest.hexdigest(function_def.definition).first(10)}"
+                end
+
+                create_function_args = [
+                  function_def.name.inspect,
+                  "[#{arg_defs.join(', ')}]",
+                  ":#{function_def.return_type}",
+                  "<<~#{token}",
+                  options.presence,
+                ].compact
+
+                stream.puts "  create_function(#{create_function_args.join(', ')})"
+                stream.puts function_def.definition.lines.map { |line| "    #{line}" }.join
+                stream.puts "  #{token}"
+                stream.puts
+              end
+            end
+          end
+
           def prepare_column_options(column)
             spec = super
             spec[:array] = "true" if column.array?

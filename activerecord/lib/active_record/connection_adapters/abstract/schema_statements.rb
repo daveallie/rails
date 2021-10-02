@@ -1395,6 +1395,18 @@ module ActiveRecord
         raise NotImplementedError, "#{self.class} does not support changing column comments"
       end
 
+      def functions
+        raise NotImplementedError, "#{self.class} does not support looking up functions"
+      end
+
+      def create_function(function_name, arguments, return_type, definition, **options)
+        raise NotImplementedError, "#{self.class} does not support defining functions"
+      end
+
+      def drop_function(function_name, arguments, return_type = nil, definition = nil, **options)
+        raise NotImplementedError, "#{self.class} does not support dropping functions"
+      end
+
       def create_schema_dumper(options) # :nodoc:
         SchemaDumper.create(self, options)
       end

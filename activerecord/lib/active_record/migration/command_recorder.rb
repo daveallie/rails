@@ -17,10 +17,12 @@ module ActiveRecord
     # * change_column_null
     # * change_column_comment (must supply a :from and :to option)
     # * change_table_comment (must supply a :from and :to option)
+    # * create_function
     # * create_join_table
     # * create_table
     # * disable_extension
     # * drop_join_table
+    # * drop_function
     # * drop_table (must supply a block)
     # * enable_extension
     # * remove_column (must supply a type)
@@ -42,7 +44,7 @@ module ActiveRecord
         :change_column, :execute, :remove_columns, :change_column_null,
         :add_foreign_key, :remove_foreign_key,
         :change_column_comment, :change_table_comment,
-        :add_check_constraint, :remove_check_constraint
+        :add_check_constraint, :remove_check_constraint, :create_function, :drop_function
       ]
       include JoinTable
 
@@ -140,7 +142,8 @@ module ActiveRecord
               add_reference:     :remove_reference,
               add_foreign_key:   :remove_foreign_key,
               add_check_constraint: :remove_check_constraint,
-              enable_extension:  :disable_extension
+              enable_extension:  :disable_extension,
+              create_function: :drop_function,
             }.each do |cmd, inv|
               [[inv, cmd], [cmd, inv]].uniq.each do |method, inverse|
                 class_eval <<-EOV, __FILE__, __LINE__ + 1
@@ -271,6 +274,11 @@ module ActiveRecord
 
         def invert_remove_check_constraint(args)
           raise ActiveRecord::IrreversibleMigration, "remove_check_constraint is only reversible if given an expression." if args.size < 2
+          super
+        end
+
+        def invert_drop_function(args)
+          raise ActiveRecord::IrreversibleMigration, "drop_function is only reversible if given a return_type and definition." if args.size < 4
           super
         end
 

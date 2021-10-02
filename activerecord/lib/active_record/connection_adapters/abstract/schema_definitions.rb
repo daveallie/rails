@@ -150,6 +150,27 @@ module ActiveRecord
       end
     end
 
+    class FunctionDefinition
+      attr_reader :name, :arguments, :return_type, :definition, :options
+
+      def initialize(name, arguments:, return_type:, definition:, **options)
+        @name = name
+        @return_type = return_type
+        @definition = definition.strip
+        @options = options
+
+        @arguments = arguments.map do |a|
+          if a.is_a?(Hash)
+            a.assert_valid_keys(:argtype, :argname, :argmode, :default)
+            raise ArgumentError, "Must define argtype for all function arguments" unless a.key?(:argtype)
+            a
+          else
+            { argtype: a }
+          end
+        end
+      end
+    end
+
     class ReferenceDefinition # :nodoc:
       def initialize(
         name,
